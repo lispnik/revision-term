@@ -1,5 +1,7 @@
 # revision-term — a reusable terminal widget for the `revision` framework
 
+[![CI](https://github.com/lispnik/revision-term/actions/workflows/ci.yml/badge.svg)](https://github.com/lispnik/revision-term/actions/workflows/ci.yml)
+
 A **terminal-emulator window** for the [`revision`](../revision) CLOS-native
 text-mode UI framework. It runs a real child process (your shell, `vi`, `top`,
 anything) on a pseudo-terminal, emulates the terminal with **libvterm**, and

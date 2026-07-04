@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: test · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+
+    steps:
+      - name: Check out revision-term
+        uses: actions/checkout@v4
+        with:
+          path: revision-term
+
+      # setup.lisp expects the framework + closure lib as siblings.
+      - name: Clone sibling frameworks
+        run: |
+          git clone --depth 1 https://github.com/lispnik/revision.git revision
+          git clone --depth 1 https://github.com/lispnik/cffi-callback-closures.git cffi-callback-closures
+
+      # --- toolchain: SBCL, libvterm, a C toolchain (cffi-grovel), and ocicl ---
+      - name: Install toolchain (macOS)
+        if: runner.os == 'macOS'
+        run: brew install sbcl libvterm ocicl pkg-config libffi
+
+      - name: Install toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sbcl libvterm-dev libffi-dev build-essential pkg-config git
+          # ocicl isn't in the default apt repos; build it from source (-> ~/.local/bin)
+          git clone --depth 1 https://github.com/ocicl/ocicl.git ocicl-src
+          ( cd ocicl-src && sbcl --non-interactive --load setup.lisp )
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # The sibling repos fetch their own deps (fiveam, cffi, cffi-libffi, …)
+      # via ocicl from committed manifests — restore the exact versions.
+      - name: Restore Lisp dependencies
+        run: |
+          ocicl version
+          ocicl setup
+          ( cd revision && ocicl install )
+          ( cd cffi-callback-closures && ocicl install )
+
+      - name: Build + run the FiveAM suite
+        run: make -C revision-term test
