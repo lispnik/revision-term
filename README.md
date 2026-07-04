@@ -49,6 +49,13 @@ Three libraries meeting at one widget:
   registry, so there is nothing else to install.
 - macOS or Linux (POSIX `forkpty`).
 
+> **`revision` version.** This widget needs the text-style support in the
+> framework's true-colour attributes (`attr-rgb-style` and the style argument to
+> `rgb-attr` / `make-rgb`), added to [`lispnik/revision`](https://github.com/lispnik/revision)
+> in commit [`4328e2c`](https://github.com/lispnik/revision/commit/4328e2c)
+> (on `master`). A `revision` checkout older than that will fail to build; just
+> `git pull` it.
+
 ## Run it
 
 ```sh
