@@ -69,6 +69,20 @@ dyld search path)."
   (sb-popline  :pointer)
   (sb-clear    :pointer))
 
+;; VTermStringFragment (how a string property -- e.g. the window title -- is
+;; delivered to settermprop, possibly in several pieces).  The C struct packs
+;;   size_t len:30;  bool initial:1;  bool final:1;
+;; into one word after the pointer, so we read it as a single uint32 and unpack
+;; the bits by hand (VSF-LEN / VSF-INITIAL-P / VSF-FINAL-P below).
+(cffi:defcstruct (vterm-string-fragment :conc-name vsf-)
+  (str    :pointer)
+  (packed :uint32))
+
+(declaim (inline vsf-len vsf-initial-p vsf-final-p))
+(defun vsf-len       (packed) (logand packed #x3fffffff))
+(defun vsf-initial-p (packed) (logbitp 30 packed))
+(defun vsf-final-p   (packed) (logbitp 31 packed))
+
 ;;; --- VTermKey / VTermModifier (from vterm_keycodes.h) -----------------------
 
 (defconstant +mod-none+  #x00)
@@ -95,7 +109,16 @@ dyld search path)."
 
 ;;; --- VTermProp (the few we care about) --------------------------------------
 
-(defconstant +prop-cursorvisible+ 1)
+(defconstant +prop-cursorvisible+ 1)   ; bool
+(defconstant +prop-altscreen+     3)   ; bool
+(defconstant +prop-title+         4)   ; string
+(defconstant +prop-reverse+       6)   ; bool
+(defconstant +prop-cursorshape+   7)   ; number (1 block / 2 underline / 3 bar)
+(defconstant +prop-mouse+         8)   ; number (0 none / 1 click / 2 drag / 3 move)
+
+(defconstant +cursorshape-block+     1)
+(defconstant +cursorshape-underline+ 2)
+(defconstant +cursorshape-bar+       3)
 
 ;;; --- functions --------------------------------------------------------------
 
@@ -149,6 +172,45 @@ dyld search path)."
 
 (cffi:defcfun ("vterm_state_get_cursorpos" vterm-state-get-cursorpos) :void
   (state :pointer) (cursorpos :pointer))
+
+(cffi:defcfun ("vterm_screen_enable_reflow" vterm-screen-enable-reflow) :void
+  (screen :pointer) (reflow :int))
+
+;; Damage tracking: merge per-row so the `damage' callback fires once per changed
+;; row (flushed by flush_damage), letting us re-poll only the rows that changed.
+(defconstant +damage-cell+   0)
+(defconstant +damage-row+    1)
+(defconstant +damage-screen+ 2)
+(defconstant +damage-scroll+ 3)
+
+(cffi:defcfun ("vterm_screen_set_damage_merge" vterm-screen-set-damage-merge) :void
+  (screen :pointer) (size :int))
+
+(cffi:defcfun ("vterm_screen_flush_damage" vterm-screen-flush-damage) :void
+  (screen :pointer))
+
+(cffi:defcfun ("vterm_mouse_move" vterm-mouse-move) :void
+  (vt :pointer) (row :int) (col :int) (mod :int))
+
+(cffi:defcfun ("vterm_mouse_button" vterm-mouse-button) :void
+  (vt :pointer) (button :int) (pressed :int) (mod :int))
+
+(cffi:defcfun ("vterm_keyboard_start_paste" vterm-keyboard-start-paste) :void
+  (vt :pointer))
+
+(cffi:defcfun ("vterm_keyboard_end_paste" vterm-keyboard-end-paste) :void
+  (vt :pointer))
+
+;; OSC 52 (a program setting/reading the system clipboard) is delivered through
+;; the state's selection callbacks; libvterm base64-decodes into the buffer we
+;; provide and hands us plain-text fragments.
+(cffi:defcstruct (vterm-selection-callbacks :conc-name vsel-)
+  (set   :pointer)
+  (query :pointer))
+
+(cffi:defcfun ("vterm_state_set_selection_callbacks" vterm-state-set-selection-callbacks) :void
+  (state :pointer) (callbacks :pointer) (user :pointer)
+  (buffer :pointer) (buflen :unsigned-long))
 
 ;;; vterm_screen_get_cell takes VTermPos *by value*.  A VTermPos is two ints (8
 ;;; bytes, all-integer); on both arm64 (AAPCS) and x86-64 (SysV) such a struct

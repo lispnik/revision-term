@@ -36,18 +36,66 @@
   #+linux  #x5414
   #-(or darwin linux) #x80087467)
 
+;;; ioctl() is variadic (`int ioctl(int, unsigned long, ...)`), and on Apple
+;;; arm64 the AAPCS passes variadic arguments on the stack -- so a plain
+;;; `cffi:foreign-funcall`, which passes the pointer in a register, is silently
+;;; ignored by the kernel (verified: the resize never reaches the child).  We
+;;; therefore build a proper *variadic* libffi call interface (ffi_prep_cif_var,
+;;; which cffi-libffi does not expose) and call ioctl through it.  This is the
+;;; same libffi path cffi-libffi already uses for struct-by-value calls, just
+;;; parameterised as variadic.
+
+(cffi:defcfun ("ffi_prep_cif_var" %ffi-prep-cif-var) cffi::status
+  (cif :pointer) (abi cffi::abi)
+  (nfixedargs :unsigned-int) (ntotalargs :unsigned-int)
+  (rtype :pointer) (atypes :pointer))
+
+(defvar *ioctl-cif* nil "Cached variadic call interface for ioctl(int, ulong, ptr).")
+
+(defun ioctl-cif ()
+  (or *ioctl-cif*
+      (let* ((types '(:int :unsigned-long :pointer))
+             (cif (cffi:foreign-alloc '(:struct cffi::ffi-cif)))
+             (atypes (cffi:foreign-alloc :pointer :count 3)))
+        (loop for ty in types for i from 0
+              do (setf (cffi:mem-aref atypes :pointer i)
+                       (cffi::make-libffi-type-descriptor (cffi::parse-type ty))))
+        (unless (eql :ok (%ffi-prep-cif-var
+                          cif :default-abi 2 3          ; 2 fixed args, 3 total
+                          (cffi::make-libffi-type-descriptor (cffi::parse-type :int))
+                          atypes))
+          (error "ffi_prep_cif_var failed for ioctl"))
+        (setf *ioctl-cif* cif))))
+
+(defun ioctl3 (fd request ptr)
+  "Call ioctl(FD, REQUEST, PTR) with the correct variadic ABI.  Returns the
+ioctl result, or NIL if the variadic machinery is unavailable (falls back to a
+plain call, which is correct on ABIs that pass varargs in registers)."
+  (handler-case
+      (let ((cif (ioctl-cif)))
+        (cffi:with-foreign-objects ((afd :int) (areq :unsigned-long) (aptr :pointer)
+                                    (rv :int) (av :pointer 3))
+          (setf (cffi:mem-ref afd :int) fd
+                (cffi:mem-ref areq :unsigned-long) request
+                (cffi:mem-ref aptr :pointer) ptr
+                (cffi:mem-aref av :pointer 0) afd
+                (cffi:mem-aref av :pointer 1) areq
+                (cffi:mem-aref av :pointer 2) aptr)
+          (cffi::libffi/call cif (cffi:foreign-symbol-pointer "ioctl") rv av)
+          (cffi:mem-ref rv :int)))
+    (error ()
+      (cffi:foreign-funcall "ioctl" :int fd :unsigned-long request :pointer ptr :int))))
+
 (defun set-winsize (fd rows cols)
-  "Tell the kernel the pty is ROWS x COLS (delivers SIGWINCH to the child).
-Best-effort: ioctl is variadic, so on some ABIs the pointer arg may not
-propagate -- the initial size (set at spawn) is unaffected."
+  "Tell the kernel the pty is ROWS x COLS (delivers SIGWINCH to the child), via
+a variadic-correct ioctl(TIOCSWINSZ)."
   (when (and fd (>= fd 0) (plusp rows) (plusp cols))
     (cffi:with-foreign-object (ws '(:struct winsize))
       (setf (cffi:foreign-slot-value ws '(:struct winsize) 'row) rows
             (cffi:foreign-slot-value ws '(:struct winsize) 'col) cols
             (cffi:foreign-slot-value ws '(:struct winsize) 'xpixel) 0
             (cffi:foreign-slot-value ws '(:struct winsize) 'ypixel) 0)
-      (cffi:foreign-funcall "ioctl" :int fd :unsigned-long +tiocswinsz+
-                                    :pointer ws :int))))
+      (ioctl3 fd +tiocswinsz+ ws))))
 
 ;;; --- building argv / envp (in the parent, inherited by the child) -----------
 
@@ -132,6 +180,21 @@ signals an error.  The child execve's COMMAND and never returns to Lisp."
                               :pointer (cffi:null-pointer) :int 0 :int))
       (when (pty-argv pty) (%free-string-array (pty-argv pty)) (setf (pty-argv pty) nil))
       (when (pty-envp pty) (%free-string-array (pty-envp pty)) (setf (pty-envp pty) nil)))))
+
+(defun reap-child (pty)
+  "Non-blocking waitpid: if the child has exited, reap it and return its exit
+code (or 128+signal if it was killed); NIL if not yet dead / already reaped.
+Marks the pty's pid consumed so PTY-CLOSE won't wait on it again."
+  (when (and pty (> (pty-pid pty) 0))
+    (cffi:with-foreign-object (st :int)
+      (let ((r (cffi:foreign-funcall "waitpid" :int (pty-pid pty)
+                                     :pointer st :int 1 :int)))   ; WNOHANG = 1
+        (when (> r 0)
+          (setf (pty-pid pty) -1)
+          (let ((s (cffi:mem-ref st :int)))
+            (if (zerop (logand s #x7f))                 ; WIFEXITED
+                (logand (ash s -8) #xff)                ; WEXITSTATUS
+                (+ 128 (logand s #x7f)))))))))          ; killed by a signal
 
 ;;; --- non-blocking-ish read / write on the master fd -------------------------
 
