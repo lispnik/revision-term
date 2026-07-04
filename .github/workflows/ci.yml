@@ -3,6 +3,7 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
@@ -24,6 +25,27 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/lispnik/revision.git revision
           git clone --depth 1 https://github.com/lispnik/cffi-callback-closures.git cffi-callback-closures
+
+      # Reuse the compiled fasls across runs (recompiling revision + cffi + ccc +
+      # fiveam dominates the build).  The restore-keys fallback keeps the
+      # siblings' fasls even when this repo's sources change, so ASDF only
+      # recompiles what actually changed.
+      - name: Cache compiled fasls
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/common-lisp
+          key: ${{ runner.os }}-cl-fasl-${{ hashFiles('revision-term/src/**', 'revision-term/tests/**', 'revision-term/setup.lisp') }}
+          restore-keys: |
+            ${{ runner.os }}-cl-fasl-
+
+      # Reuse ocicl's downloaded dependency blobs (skips re-fetching from ghcr.io).
+      - name: Cache ocicl downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/ocicl
+          key: ${{ runner.os }}-ocicl-${{ hashFiles('revision/systems.csv', 'cffi-callback-closures/ocicl.csv') }}
+          restore-keys: |
+            ${{ runner.os }}-ocicl-
 
       # --- toolchain: SBCL, libvterm, a C toolchain (cffi-grovel), and ocicl ---
       - name: Install toolchain (macOS)
