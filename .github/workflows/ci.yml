@@ -48,6 +48,11 @@ jobs:
           ocicl setup
           ( cd revision && ocicl install )
           ( cd cffi-callback-closures && ocicl install )
+          # Transitive deps the sibling lockfiles don't pin (cffi needs babel;
+          # bordeaux-threads needs global-vars + trivial-garbage).  On dev
+          # machines ocicl's runtime auto-fetches these; a clean checkout must
+          # install them explicitly.  They don't change the pinned cffi version.
+          ( cd cffi-callback-closures && ocicl install babel global-vars trivial-garbage )
 
       - name: Build + run the FiveAM suite
         run: make -C revision-term test
