@@ -16,7 +16,8 @@ build:
 	  --eval '(asdf:load-system :revision-term)' \
 	  --eval '(format t "~&BUILD OK~%")'
 
-# Headless suite: libvterm bindings + a real PTY round-trip (no tty needed).
+# Headless FiveAM suite: libvterm bindings, a real PTY round-trip, and each of
+# the resize / exit / mouse / title / cursor / selection / scrollback features.
 test:
 	$(SBCL) --non-interactive $(LOAD) \
 	  --eval '(asdf:load-system :revision-term/test)' \
@@ -26,6 +27,12 @@ test:
 smoke:
 	python3 tests/pty-smoke.py
 	python3 tests/pty-input-smoke.py
+	python3 tests/pty-exit-smoke.py
+
+# End-to-end image dump: save-lisp-and-die with a live terminal, then restore
+# and run a fresh one.  Builds a multi-MB core, so it's separate from `make test`.
+image-test:
+	sh tests/image-test.sh
 
 # Run your $$SHELL full-screen inside a revision terminal window.
 run:

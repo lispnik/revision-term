@@ -27,8 +27,8 @@
   :in-order-to ((test-op (test-op "revision-term/test"))))
 
 (asdf:defsystem "revision-term/test"
-  :description "Headless tests for revision-term (no interactive terminal needed)."
-  :depends-on ("revision-term")
+  :description "Headless FiveAM tests for revision-term (no interactive terminal needed)."
+  :depends-on ("revision-term" "fiveam")
   :components ((:module "tests"
                 :serial t
                 :components ((:file "tests"))))
