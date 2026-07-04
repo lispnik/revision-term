@@ -1,0 +1,10 @@
+*.fasl
+*.o
+.cache/
+/systems/
+
+# OS / editor / Python junk
+.DS_Store
+__pycache__/
+*.pyc
+.claude/settings.local.json
