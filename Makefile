@@ -38,5 +38,14 @@ image-test:
 run:
 	$(SBCL) --script examples/run-shell.lisp
 
+# Self-driving desktop showcase (terminals + a Lisp REPL as managed windows).
+demo:
+	$(SBCL) --script examples/demo.lisp
+
+# Regenerate media/demo.gif from the demo (needs python3 + asciinema's agg).
+record-demo:
+	python3 examples/record-demo.py media/demo.cast 18
+	agg --idle-time-limit 1.2 --font-size 15 --fps-cap 24 media/demo.cast media/demo.gif
+
 clean:
 	rm -rf ~/.cache/common-lisp/*revision-term* 2>/dev/null || true

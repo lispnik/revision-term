@@ -7,13 +7,20 @@ renders the emulated screen into a `revision` view — so a live terminal can
 live inside a `revision` window and be **embedded in any `revision`
 application**, exactly the way the framework's REPL/editor windows are.
 
+![Terminal windows inside a revision desktop: true-colour + text styles, a native Lisp REPL alongside, tiled windows, and a second live terminal](media/demo.gif)
+
+*A `revision` desktop hosting terminal windows: 24-bit colour and text styles, a
+native Lisp REPL tiled beside a shell, scrollback, and a second terminal running
+a live clock — all managed windows. Reproduce it with `make demo` (interactive)
+or `make record-demo` (regenerates the GIF).*
+
 ```lisp
 (revision-term:run-terminal)                       ; your $SHELL, full-screen
 (revision-term:run-terminal :command '("/usr/bin/vi"))
 ```
 
-![reuse]: a `terminal-view` is just another focusable `revision` view — drop it
-in a `stack`/`row`, give it bounds, and it hosts a shell.
+A `terminal-view` is just another focusable `revision` view — drop it in a
+`stack`/`row`, give it bounds, and it hosts a shell.
 
 ## What it demonstrates
 
