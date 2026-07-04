@@ -9,7 +9,7 @@
 
 (defpackage #:revision-term-tests
   (:use #:cl)
-  (:import-from #:fiveam #:def-suite #:in-suite #:test #:is #:is-true #:is-false #:run!)
+  (:import-from #:fiveam #:def-suite #:in-suite #:test #:is #:is-true #:is-false #:finishes #:run!)
   (:export #:run))
 
 (in-package #:revision-term-tests)
@@ -270,6 +270,26 @@ scrollback cell keeps its underline through a round-trip."
         (is (= (char-code #\Z) code))
         (is (= (revision:pack-rgb 10 20 30) (revision:attr-rgb-fg attr)))
         (is (logtest (revision::attr-rgb-style attr) revision::+style-underline+))))))
+
+;;; --- regression: resizing rows never overruns the dirty-row vector ----------
+
+(test resize-rows-no-overflow
+  "vterm_set_size fires the damage callback during the resize; the dirty-row
+vector must already be the new size (else marking damaged rows overruns it --
+the crash seen when a desktop tiled a terminal taller)."
+  (let ((s (revision::make-screen)))
+    (revision::screen-resize s 40 30)
+    (let ((revision:*screen* s))
+      (with-terminal (tv '("/bin/sh" "-c" "for i in $(seq 1 30); do echo row$i; done; sleep 3")
+                         :cols 40 :rows 24)
+        (is-true (pump-until tv (lambda () (search "row30" (grid-text tv)))))
+        (setf (revision:view-bounds tv) (revision::make-trect 0 0 40 10))   ; shrink
+        (finishes (revision-term::draw tv))
+        (is (= 10 (length (revision-term::tv-dirty-rows tv))))
+        (setf (revision:view-bounds tv) (revision::make-trect 0 0 40 30))   ; grow (fires damage)
+        (finishes (revision-term::draw tv))
+        (is (= 30 (length (revision-term::tv-dirty-rows tv))))
+        (is (= 30 (revision-term::tv-rows tv)))))))
 
 ;;; --- improvement 6: scroll shifts the cache instead of re-polling all -------
 

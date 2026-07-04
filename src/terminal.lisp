@@ -243,10 +243,12 @@ reconstructed into the attrs bitfield."
           (tv-dirty-rows tv) (make-array rows :element-type 'bit :initial-element 1))))
 
 (defun tv-mark-dirty (tv r0 r1)
-  "Mark rows [R0,R1) as needing a re-poll (called from the damage callback)."
+  "Mark rows [R0,R1) as needing a re-poll (called from the damage callback).
+Bounds by the dirty-vector's own length: a resize can fire damage before the
+cache is reallocated, so tv-rows may briefly disagree with it."
   (let ((dr (tv-dirty-rows tv)))
     (when dr
-      (loop for r from (max 0 r0) below (min (tv-rows tv) r1) do (setf (sbit dr r) 1)))))
+      (loop for r from (max 0 r0) below (min (length dr) r1) do (setf (sbit dr r) 1)))))
 
 (defun tv-refresh-row (tv row)
   "Re-poll one live ROW from libvterm into the cache (the expensive per-cell
@@ -579,9 +581,9 @@ thread (as run-view's cleanup); idempotent."
     (multiple-value-bind (rows cols) (%bounds-size tv)
       (when (or (/= rows (tv-rows tv)) (/= cols (tv-cols tv)))
         (setf (tv-rows tv) rows (tv-cols tv) cols)
-        (vterm-set-size (tv-vt tv) rows cols)
-        (when (tv-pty tv) (set-winsize (pty-master (tv-pty tv)) rows cols))
-        (tv-alloc-cache tv)))))                         ; resize invalidates the cache
+        (tv-alloc-cache tv)                             ; realloc BEFORE set-size (which may
+        (vterm-set-size (tv-vt tv) rows cols)           ; fire damage against the new dirty vector)
+        (when (tv-pty tv) (set-winsize (pty-master (tv-pty tv)) rows cols))))))
 
 ;;; --- viewport geometry (shared by draw, mouse, selection) -------------------
 
