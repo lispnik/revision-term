@@ -26,26 +26,38 @@ jobs:
           git clone --depth 1 https://github.com/lispnik/revision.git revision
           git clone --depth 1 https://github.com/lispnik/cffi-callback-closures.git cffi-callback-closures
 
-      # Reuse the compiled fasls across runs (recompiling revision + cffi + ccc +
-      # fiveam dominates the build).  The restore-keys fallback keeps the
-      # siblings' fasls even when this repo's sources change, so ASDF only
-      # recompiles what actually changed.
+      - name: Resolve sibling versions
+        id: sib
+        run: echo "key=$(git -C revision rev-parse HEAD)-$(git -C cffi-callback-closures rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # Cache the compiled fasls, keyed on the sibling commits.  The bulk of the
+      # build is compiling revision + cffi + ccc + fiveam, which only changes
+      # when a sibling does — so this hits on almost every push to THIS repo.
+      # (revision-term's own sources are re-checked-out fresh, so ASDF still
+      # recompiles just those; see the mtime fixup below.)
       - name: Cache compiled fasls
+        id: fasl
         uses: actions/cache@v4
         with:
           path: ~/.cache/common-lisp
-          key: ${{ runner.os }}-cl-fasl-${{ hashFiles('revision-term/src/**', 'revision-term/tests/**', 'revision-term/setup.lisp') }}
-          restore-keys: |
-            ${{ runner.os }}-cl-fasl-
+          key: ${{ runner.os }}-fasl-${{ steps.sib.outputs.key }}
 
       # Reuse ocicl's downloaded dependency blobs (skips re-fetching from ghcr.io).
       - name: Cache ocicl downloads
         uses: actions/cache@v4
         with:
           path: ~/.local/share/ocicl
-          key: ${{ runner.os }}-ocicl-${{ hashFiles('revision/systems.csv', 'cffi-callback-closures/ocicl.csv') }}
+          key: ${{ runner.os }}-ocicl-${{ steps.sib.outputs.key }}
           restore-keys: |
             ${{ runner.os }}-ocicl-
+
+      # Building ocicl from source (Linux) is slow; cache the binary.
+      - name: Cache ocicl binary (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/bin/ocicl
+          key: Linux-ocicl-bin-v1
 
       # --- toolchain: SBCL, libvterm, a C toolchain (cffi-grovel), and ocicl ---
       - name: Install toolchain (macOS)
@@ -57,24 +69,33 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y sbcl libvterm-dev libffi-dev build-essential pkg-config git
-          # ocicl isn't in the default apt repos; build it from source (-> ~/.local/bin)
-          git clone --depth 1 https://github.com/ocicl/ocicl.git ocicl-src
-          ( cd ocicl-src && sbcl --non-interactive --load setup.lisp )
+          # ocicl isn't in the default apt repos; build it from source unless cached.
+          if [ ! -x "$HOME/.local/bin/ocicl" ]; then
+            git clone --depth 1 https://github.com/ocicl/ocicl.git ocicl-src
+            ( cd ocicl-src && sbcl --non-interactive --load setup.lisp )
+          fi
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      # The sibling repos fetch their own deps (fiveam, cffi, cffi-libffi, …)
-      # via ocicl from committed manifests — restore the exact versions.
+      # The sibling repos fetch their own deps (fiveam, cffi, cffi-libffi, …) via
+      # ocicl from committed manifests — plus a few transitive deps those
+      # manifests omit (cffi needs babel; bordeaux-threads needs global-vars +
+      # trivial-garbage) that a clean checkout doesn't auto-fetch.
       - name: Restore Lisp dependencies
         run: |
           ocicl version
           ocicl setup
           ( cd revision && ocicl install )
           ( cd cffi-callback-closures && ocicl install )
-          # Transitive deps the sibling lockfiles don't pin (cffi needs babel;
-          # bordeaux-threads needs global-vars + trivial-garbage).  On dev
-          # machines ocicl's runtime auto-fetches these; a clean checkout must
-          # install them explicitly.  They don't change the pinned cffi version.
           ( cd cffi-callback-closures && ocicl install babel global-vars trivial-garbage )
+
+      # On a fasl-cache hit the sibling sources are byte-identical to when the
+      # fasls were built (same commits), but they were just re-cloned/-fetched,
+      # so their mtimes look newer and ASDF would recompile.  Backdate the
+      # sibling + dependency sources so ASDF trusts the cached fasls.  (Only the
+      # siblings — revision-term's own sources stay fresh and recompile.)
+      - name: Trust cached sibling fasls
+        if: steps.fasl.outputs.cache-hit == 'true'
+        run: find revision cffi-callback-closures -type f -exec touch -t 200001010000 {} +
 
       - name: Build + run the FiveAM suite
         run: make -C revision-term test
