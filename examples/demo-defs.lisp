@@ -82,17 +82,17 @@
             (revision::dt-statusbar dt)
             (make-instance 'revision:status-bar :provider (lambda () (revision::dt-status-items dt))))
       (revision::layout dt (revision::rect 0 0 (revision:screen-width s) (revision:screen-height s)))
-      (setf revision::*root* dt revision:*desktop* dt
+      (setf (revision:context-root revision:*context*) dt revision:*desktop* dt
             revision:*ui-thread* sb-thread:*current-thread*
-            revision::*app-done* nil revision::*dirty* t)
+            revision::*app-done* nil (revision:context-dirty revision:*context*) t)
       (demo-autopilot dt)
       (unwind-protect
            (loop until revision::*app-done* do
              (revision:drain-ui-callbacks)
-             (when revision::*dirty*
+             (when (revision:context-dirty revision:*context*)
                (revision:hide-cursor s)
                (revision::draw dt) (revision:flush-screen s)
-               (setf revision::*dirty* nil))
+               (setf (revision:context-dirty revision:*context*) nil))
              (revision::pump-input s 0.05)
              (let ((tev (revision::screen-next-event s)))
                (when tev (let ((ev (revision::translate tev)))
