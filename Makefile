@@ -27,6 +27,7 @@ test:
 smoke:
 	python3 tests/pty-smoke.py
 	python3 tests/pty-input-smoke.py
+	python3 tests/pty-paste-smoke.py
 	python3 tests/pty-exit-smoke.py
 
 # End-to-end image dump: save-lisp-and-die with a live terminal, then restore

@@ -908,6 +908,18 @@ trimmed per line, or NIL."
        (setf (handled-p e) t))
       (t (setf (handled-p e) t)))))
 
+;;; A bracketed paste from the outer terminal (e.g. a dragged file path) is
+;;; forwarded to the child wrapped in its own bracketed paste, so a paste-aware
+;;; child (a shell, or `claude') sees it as one pasted block rather than a burst
+;;; of typed keys -- newlines don't auto-execute and the path arrives intact.
+(defmethod handle-event ((tv terminal-view) (e paste-event))
+  (when (tv-alive tv)
+    (tv-clear-selection tv)
+    (terminal-paste-text tv (event-text e))
+    (unless (zerop (tv-scroll tv)) (setf (tv-scroll tv) 0))
+    (invalidate tv))
+  (setf (handled-p e) t))
+
 ;;; --- mouse ------------------------------------------------------------------
 ;;; When the child has enabled mouse reporting (VTERM_PROP_MOUSE), pointer
 ;;; events are forwarded to it (so vim/htop/tmux get the mouse).  Otherwise the
