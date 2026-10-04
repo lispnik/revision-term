@@ -41,7 +41,8 @@ Test names are the `(test NAME ...)` forms in `tests/tests.lisp`. `make test` ca
 - **SBCL** (uses `sb-thread`, `sb-ext`, `sb-alien`).
 - **libvterm** — `brew install libvterm` (macOS; installed under `/opt/homebrew/lib`, which
   `ensure-libvterm` adds to the dyld search path) or your distro's `libvterm-dev`.
-- **Sibling checkouts next to this one**: `../revision` (the framework) and
+- **Sibling checkouts next to this one**: `../revision` (the framework),
+  `../vterm` (the libvterm CFFI binding, [lispnik/vterm](https://github.com/lispnik/vterm)) and
   `../cffi-callback-closures` (which bundles its own `cffi` / `cffi-libffi` under `ocicl/`).
   `setup.lisp` assumes this sibling layout. The framework must be new enough to have text-style
   support in its RGB attributes (`attr-rgb-style`, the style arg to `rgb-attr`/`make-rgb`) —
@@ -63,14 +64,18 @@ child ──stdout──▶ pty master ──(reader thread: read() only)──�
  keystroke ─▶ vterm_keyboard_* ─▶ (output closure) ─▶ pty master ─▶ child
 ```
 
+The CFFI binding to libvterm is the separate **`vterm`** system (sibling `../vterm`, package
+`vterm`, used by `revision-term`): only the slice we need, with struct layouts
+(`vterm-screen-cell`, `vterm-color`, `vterm-string-fragment`) hand-defined to match the C ABI — no
+cffi-grovel. A binding change (a new `vterm_*` function, struct, or constant) belongs there; export
+it from `vterm`'s package. `vterm` deliberately does **not** export the `vterm-pos` slot names
+`row`/`col` (they would clash with `revision:row`) — use `vterm-pos-row` / `vterm-pos-col`.
+
 Source files (`:serial t`, load in this order):
 
-- **`src/package.lisp`** — the `revision-term` package (`:use #:cl #:revision`). Exports the
+- **`src/package.lisp`** — the `revision-term` package (`:use #:cl #:revision #:vterm`). Exports the
   public API: `terminal-view`, `terminal-window`, `make-terminal`, `run-terminal`,
   `terminal-alive-p`, `terminal-send-string`, `terminal-child-pid`, `*terminal-keys*`.
-- **`src/vterm.lisp`** — the CFFI binding to libvterm. Only the slice we need. Struct layouts
-  (`vterm-screen-cell`, `vterm-color`, `vterm-string-fragment`) are hand-defined to match the C
-  ABI — no cffi-grovel.
 - **`src/pty.lisp`** — `forkpty`-based child spawning, argv/envp, and the variadic `ioctl` resize.
 - **`src/terminal.lisp`** — the bulk: the `terminal-view` class, `draw`, `handle-event`, the
   callback closures, scrollback, selection, clipboard. Start here for widget behavior.

@@ -32,7 +32,8 @@ Three libraries meeting at one widget:
   worker→UI bridge. `terminal-view` is a `view` subclass: it implements `draw`
   and `handle-event` and nothing about the framework had to change.
 - **libvterm** (a C library) does the hard part — parsing the ANSI/VT stream
-  the child emits into a grid of cells. We bind the slice we need via **CFFI**.
+  the child emits into a grid of cells. The CFFI binding lives in its own
+  library, **[`vterm`](https://github.com/lispnik/vterm)**.
 - **[`cffi-callback-closures`](../cffi-callback-closures)** supplies libvterm's
   per-instance callbacks. libvterm wants a *scrollback-push* callback, a
   *cursor-visibility* callback, a *resize* callback and an *output* callback,
@@ -46,8 +47,8 @@ Three libraries meeting at one widget:
 - **SBCL** (uses `sb-thread`, `sb-ext`).
 - **libvterm** — `brew install libvterm` (macOS) or your distro's `libvterm`.
 - The sibling checkouts next to this one:
-  `../revision` and `../cffi-callback-closures` (which bundles its own `cffi` /
-  `cffi-libffi` under `ocicl/`). `setup.lisp` puts all of them on the ASDF
+  `../revision`, `../vterm` (the libvterm binding) and `../cffi-callback-closures`
+  (which bundles its own `cffi` / `cffi-libffi` under `ocicl/`). `setup.lisp` puts all of them on the ASDF
   registry, so there is nothing else to install.
 - macOS or Linux (POSIX `forkpty`).
 

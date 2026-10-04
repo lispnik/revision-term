@@ -605,8 +605,7 @@ the viewport.  The viewport is bottom-aligned; SCROLL lifts it into history."
 (defun tv-cursor-pos (tv)
   (cffi:with-foreign-object (pos '(:struct vterm-pos))
     (vterm-state-get-cursorpos (tv-vstate tv) pos)
-    (values (cffi:foreign-slot-value pos '(:struct vterm-pos) 'row)
-            (cffi:foreign-slot-value pos '(:struct vterm-pos) 'col))))
+    (values (vterm-pos-row pos) (vterm-pos-col pos))))
 
 (defun %draw-live-row (tv ry live-row w ax ay)
   ;; refresh this row from libvterm only if it was damaged since we last drew it

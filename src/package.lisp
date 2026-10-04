@@ -7,7 +7,7 @@
 ;;;; window -- and be embedded in any revision application.
 
 (defpackage #:revision-term
-  (:use #:cl #:revision)
+  (:use #:cl #:revision #:vterm)
   (:import-from #:cffi-callback-closures
                 #:make-foreign-callback
                 #:free-foreign-callback)

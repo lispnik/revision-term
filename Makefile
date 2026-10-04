@@ -1,6 +1,6 @@
 # revision-term --- a libvterm-backed terminal widget for the revision framework.
 #
-# Assumes the sibling checkouts ../revision and ../cffi-callback-closures exist,
+# Assumes the sibling checkouts ../revision, ../vterm and ../cffi-callback-closures exist,
 # libvterm is installed (brew install libvterm), and SBCL is on PATH.
 
 SBCL ?= sbcl

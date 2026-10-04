@@ -20,15 +20,16 @@ jobs:
         with:
           path: revision-term
 
-      # setup.lisp expects the framework + closure lib as siblings.
+      # setup.lisp expects the framework, libvterm binding + closure lib as siblings.
       - name: Clone sibling frameworks
         run: |
           git clone --depth 1 https://github.com/lispnik/revision.git revision
+          git clone --depth 1 https://github.com/lispnik/vterm.git vterm
           git clone --depth 1 https://github.com/lispnik/cffi-callback-closures.git cffi-callback-closures
 
       - name: Resolve sibling versions
         id: sib
-        run: echo "key=$(git -C revision rev-parse HEAD)-$(git -C cffi-callback-closures rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: echo "key=$(git -C revision rev-parse HEAD)-$(git -C vterm rev-parse HEAD)-$(git -C cffi-callback-closures rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       # Cache the compiled fasls, keyed on the sibling commits.  The bulk of the
       # build is compiling revision + cffi + ccc + fiveam, which only changes
@@ -95,7 +96,7 @@ jobs:
       # siblings — revision-term's own sources stay fresh and recompile.)
       - name: Trust cached sibling fasls
         if: steps.fasl.outputs.cache-hit == 'true'
-        run: find revision cffi-callback-closures -type f -exec touch -t 200001010000 {} +
+        run: find revision vterm cffi-callback-closures -type f -exec touch -t 200001010000 {} +
 
       - name: Build + run the FiveAM suite
         run: make -C revision-term test

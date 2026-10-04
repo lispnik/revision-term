@@ -1,4 +1,4 @@
-;;;; setup.lisp --- put the sibling `revision' and `cffi-callback-closures'
+;;;; setup.lisp --- put the sibling `revision', `vterm' and `cffi-callback-closures'
 ;;;; checkouts (and cffi-callback-closures' bundled ocicl dependencies) on the
 ;;;; ASDF registry, so (asdf:load-system :revision-term) just works.
 ;;;;
@@ -7,6 +7,7 @@
 ;;;; Layout assumed (siblings under one parent directory):
 ;;;;   .../revision-term/            <- this project
 ;;;;   .../revision/                 <- the framework
+;;;;   .../vterm/                    <- the libvterm binding
 ;;;;   .../cffi-callback-closures/   <- the closure library (bundles cffi in ocicl/)
 
 (require :asdf)
@@ -15,6 +16,7 @@
        (root (make-pathname :directory (butlast (pathname-directory here))
                             :name nil :type nil :defaults here))
        (revision (merge-pathnames "revision/" root))
+       (vterm    (merge-pathnames "vterm/" root))
        (ccc      (merge-pathnames "cffi-callback-closures/" root)))
   (flet ((reg (dir)
            (when (probe-file dir)
@@ -37,6 +39,8 @@
     (reg (make-pathname :directory (pathname-directory here) :name nil :type nil :defaults here))
     ;; the framework (no external deps)
     (reg revision)
+    ;; the libvterm binding (needs only cffi, which ccc's ocicl/ provides)
+    (reg vterm)
     ;; cffi-callback-closures + its bundled cffi / cffi-libffi / bordeaux-threads
     (reg-tree (merge-pathnames "ocicl/" ccc))   ; deps first, so their cffi wins
     (reg ccc)

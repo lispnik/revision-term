@@ -3,6 +3,7 @@
 ;;;;
 ;;;; Depends on:
 ;;;;   revision                 -- the CLOS-native TUI framework (sibling checkout)
+;;;;   vterm                    -- the CFFI binding to libvterm (sibling checkout)
 ;;;;   cffi / cffi-libffi       -- the FFI
 ;;;;   cffi-callback-closures   -- runtime C-callable closures for libvterm's
 ;;;;                               per-instance screen callbacks (sibling checkout)
@@ -15,12 +16,11 @@
   :author "Matthew Kennedy"
   :license "MIT"
   :version "0.1.0"
-  :depends-on ("revision" "cffi" "cffi-callback-closures")
+  :depends-on ("revision" "vterm" "cffi" "cffi-callback-closures")
   :serial t
   :components ((:module "src"
                 :serial t
                 :components ((:file "package")
-                             (:file "vterm")
                              (:file "pty")
                              (:file "terminal")
                              (:file "app"))))
