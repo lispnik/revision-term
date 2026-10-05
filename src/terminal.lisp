@@ -158,15 +158,16 @@ Unicode range maps to the +wide-cont+ sentinel."
 (defun attrs->style (attrs)
   "Translate a VTermScreenCellAttrs bitfield word into revision's style bitmask
 (bold / italic / underline{single,double,curly} / blink / reverse / strike)."
-  (let ((uline (ldb (byte 2 1) attrs)))                                    ; 0 off 1 single 2 double 3 curly
-    (logior (if (logbitp 0 attrs) revision::+style-bold+ 0)                ; bold
-            (if (logbitp 3 attrs) revision::+style-italic+ 0)              ; italic
-            (if (plusp uline) revision::+style-underline+ 0)               ; underline
-            (case uline (2 revision::+style-uline-double+)
-                        (3 revision::+style-uline-curly+) (t 0))
-            (if (logbitp 4 attrs) revision::+style-blink+ 0)               ; blink
-            (if (logbitp 5 attrs) revision::+style-reverse+ 0)             ; reverse
-            (if (logbitp 7 attrs) revision::+style-strike+ 0))))           ; strike
+  (let ((uline (attrs-underline attrs)))
+    (logior (if (attrs-bold-p attrs) revision::+style-bold+ 0)
+            (if (attrs-italic-p attrs) revision::+style-italic+ 0)
+            (if (/= uline +underline-off+) revision::+style-underline+ 0)
+            (cond ((= uline +underline-double+) revision::+style-uline-double+)
+                  ((= uline +underline-curly+) revision::+style-uline-curly+)
+                  (t 0))
+            (if (attrs-blink-p attrs) revision::+style-blink+ 0)
+            (if (attrs-reverse-p attrs) revision::+style-reverse+ 0)
+            (if (attrs-strike-p attrs) revision::+style-strike+ 0))))
 
 (defun cell->packed (tv cellp)
   "Translate the foreign VTermScreenCell at CELLP into (values CODE ATTR WIDTH),
@@ -181,7 +182,7 @@ host terminal renders SGR 7 -- rather than emitted as a style."
          (style (attrs->style attrs))
          (fgp (cffi:foreign-slot-pointer cellp '(:struct vterm-screen-cell) 'fg))
          (bgp (cffi:foreign-slot-pointer cellp '(:struct vterm-screen-cell) 'bg)))
-    (when (logbitp 6 attrs) (setf code 32))                     ; conceal (SGR 8): render blank
+    (when (attrs-conceal-p attrs) (setf code 32))               ; conceal (SGR 8): render blank
     (vterm-screen-convert-color-to-rgb screen fgp)
     (vterm-screen-convert-color-to-rgb screen bgp)
     (multiple-value-bind (fr fg fb) (color-rgb fgp)
@@ -362,47 +363,49 @@ TV), stash them in a VTermScreenCallbacks struct, and register it.  Also install
 the output callback that pipes the child's replies + our keystrokes to the pty."
   (let* ((cbs (cffi:foreign-alloc '(:struct vterm-screen-callbacks)))
          ;; damage takes a VTermRect by value (4 ints, 16 bytes) -> two integer
-         ;; registers; flatten it into two uint64s: (start_row|end_row<<32) and
-         ;; (start_col|end_col<<32).  We only need the row span.
+         ;; registers, i.e. two uint64s that vterm's UNPACK-RECT decodes.  We
+         ;; only need the row span.
          (damage
            (make-foreign-callback
-            (lambda (rows-packed cols-packed user)
-              (declare (ignore cols-packed user))
-              (tv-mark-dirty tv (logand rows-packed #xffffffff) (ash rows-packed -32))
+            (lambda (rows-word cols-word user)
+              (declare (ignore user))
+              (multiple-value-bind (r0 r1) (unpack-rect rows-word cols-word)
+                (tv-mark-dirty tv r0 r1))
               1)
             :int '(:uint64 :uint64 :pointer)))
          ;; moverect takes two VTermRects by value (dest, src) = 32 bytes -> four
-         ;; integer registers; flatten each rect into (rows, cols) uint64s.
+         ;; integer registers, two uint64s per rect.
          (moverect
            (make-foreign-callback
             (lambda (dest-rows dest-cols src-rows src-cols user)
               (declare (ignore user))
-              (tv-move-rect tv
-                            (logand dest-rows #xffffffff) (ash dest-rows -32)
-                            (logand dest-cols #xffffffff) (ash dest-cols -32)
-                            (logand src-rows #xffffffff) (ash src-rows -32)
-                            (logand src-cols #xffffffff) (ash src-cols -32))
+              (multiple-value-call #'tv-move-rect tv
+                (unpack-rect dest-rows dest-cols)
+                (unpack-rect src-rows src-cols))
               1)
             :int '(:uint64 :uint64 :uint64 :uint64 :pointer)))
          (settermprop
            (make-foreign-callback
             (lambda (prop val user)
               (declare (ignore user))
-              (cond
-                ((= prop +prop-cursorvisible+)
-                 (setf (tv-cursor-visible tv) (/= 0 (cffi:mem-ref val :int))))
-                ((= prop +prop-altscreen+)
-                 (setf (tv-alt-screen tv) (/= 0 (cffi:mem-ref val :int))))
-                ((= prop +prop-cursorshape+)
-                 (setf (tv-cursor-shape tv)
-                       (let ((n (cffi:mem-ref val :int)))
-                         (cond ((= n +cursorshape-underline+) :underline)
-                               ((= n +cursorshape-bar+) :bar)
-                               (t :block)))))
-                ((= prop +prop-mouse+)
-                 (setf (tv-mouse-mode tv) (cffi:mem-ref val :int)))
-                ((= prop +prop-title+)
-                 (tv-accumulate-title tv val)))
+              ;; VAL is a VTermValue*; which member is live depends on PROP
+              (flet ((value-boolean () (cffi:foreign-slot-value val '(:union vterm-value) 'boolean))
+                     (value-number () (cffi:foreign-slot-value val '(:union vterm-value) 'number)))
+                (cond
+                  ((= prop +prop-cursorvisible+)
+                   (setf (tv-cursor-visible tv) (/= 0 (value-boolean))))
+                  ((= prop +prop-altscreen+)
+                   (setf (tv-alt-screen tv) (/= 0 (value-boolean))))
+                  ((= prop +prop-cursorshape+)
+                   (setf (tv-cursor-shape tv)
+                         (let ((n (value-number)))
+                           (cond ((= n +cursorshape-underline+) :underline)
+                                 ((= n +cursorshape-bar+) :bar)
+                                 (t :block)))))
+                  ((= prop +prop-mouse+)
+                   (setf (tv-mouse-mode tv) (value-number)))
+                  ((= prop +prop-title+)
+                   (tv-accumulate-title tv val))))
               1)
             :int '(:int :pointer :pointer)))
          (bell
@@ -477,8 +480,7 @@ after the view has been laid out (its bounds set the initial size)."
   (ensure-libvterm)
   (multiple-value-bind (rows cols) (%bounds-size tv)
     (setf (tv-rows tv) rows (tv-cols tv) cols)
-    (let ((vt (vterm-new rows cols)))
-      (when (cffi:null-pointer-p vt) (error "vterm_new failed"))
+    (let ((vt (vterm-new rows cols)))          ; signals vterm-error on failure
       (setf (tv-vt tv) vt)
       (vterm-set-utf8 vt 1)
       (setf (tv-vscreen tv) (vterm-obtain-screen vt)
