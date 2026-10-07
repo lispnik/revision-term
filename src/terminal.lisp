@@ -931,7 +931,8 @@ trimmed per line, or NIL."
   (and (plusp (tv-mouse-mode tv)) (zerop (tv-scroll tv)) (tv-alive tv)))
 
 (defun %vbutton (e)
-  (if (logtest (event-buttons e) revision:+mb-right+) 3 1))
+  ;; EVENT-BUTTONS is revision's but not exported
+  (if (logtest (revision::event-buttons e) revision:+mb-right+) 3 1))
 
 (defun %forward-mouse-at (tv e press pressed)
   "Forward a mouse event to the child at its live-screen cell."

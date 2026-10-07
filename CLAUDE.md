@@ -133,9 +133,10 @@ thunk. Or drop a raw `terminal-view` into a `stack`/`row` layout and call
 ## Working notes
 
 - Some `revision` symbols this widget needs are **not exported** — reference them with `revision::`
-  (e.g. `revision::mouse-move`, `revision::mouse-up`, `revision::intern-grapheme`,
+  (e.g. `revision::mouse-move`, `revision::mouse-up`, `revision::event-buttons`, `revision::intern-grapheme`,
   `revision::cell-make-code`, `revision::make-screen`). Only `mouse-down`, `mouse-event`,
-  `wheel-event`, `key-event` and the like are exported.
+  `wheel-event`, `key-event` and the like are exported. An unqualified unexported name compiles with only an "undefined function" warning and
+  fails at run time — `make build` should print no warnings.
 - Some fidelity features (text styles, RGB style bitmask, double/curly underline) required
   **extending the `revision` framework itself** (`base/colors.lisp`) in a backward-compatible way.
   Changing style encoding here may mean a matching change over in `../revision`; re-run revision's

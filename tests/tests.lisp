@@ -148,6 +148,18 @@ child -- `stty size' reflects it."
   (with-terminal (tv '("/bin/sh" "-c" "printf '\\033[?1000h'; sleep 2"))
     (is-true (pump-until tv (lambda () (plusp (revision-term::tv-mouse-mode tv)))))))
 
+(test mouse-click-forwarded
+  "With mouse reporting on, a click reaches the child as an X10 mouse report
+(ESC [ M, the button, then column and row): the child dumps the bytes it reads."
+  (with-terminal (tv '("/bin/sh" "-c"
+                       "printf '\\033[?1000h'; stty raw -echo; od -An -tx1 -N6; sleep 2"))
+    (is-true (pump-until tv (lambda () (plusp (revision-term::tv-mouse-mode tv)))))
+    (sleep 0.3)                         ; let stty take effect before the click
+    (revision:handle-event tv (make-instance 'revision:mouse-down :where (cons 4 2)
+                                                                  :buttons revision::+mb-left+))
+    ;; ESC [ M, button 1 pressed (0x20), column 5 and row 3 (1-based, +32)
+    (is-true (pump-until tv (lambda () (search "1b 5b 4d 20 25 23" (grid-text tv)))))))
+
 ;;; --- improvement 5: OSC window title + DECSCUSR cursor shape ----------------
 
 (test osc-title
