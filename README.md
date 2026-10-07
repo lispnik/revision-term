@@ -82,7 +82,12 @@ Keys, once inside:
 The child process drives more than text: it can **grab the mouse** (vim, htop,
 tmux get real mouse events), set the **window title** (OSC — reflected on the
 window frame), pick the **cursor shape** (block/underline/bar), copy to the
-**system clipboard** (OSC 52), and toggle the alternate screen. When the child
+**system clipboard** (OSC 52), hear when the terminal gains and loses **focus**
+(CSI ?1004h, as vim and tmux ask), and toggle the alternate screen. A program
+may *read* the clipboard (an OSC 52 query) only if you allow it with
+`(setf revision-term::*terminal-allow-clipboard-read* t)` -- off by default, as
+in xterm, since anything running in the terminal could otherwise read what you
+copied. When the child
 exits, the widget shows a **`[process exited: N]`** banner instead of freezing,
 and window **resize** is propagated to the child.
 

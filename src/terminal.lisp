@@ -53,6 +53,12 @@ single thread and a clean heap; also callable directly on shutdown."
   "When true, copies also go to the OS clipboard via an external tool (pbcopy /
 wl-copy / xclip / xsel).  Bind to NIL to keep copies in-process (e.g. in tests).")
 
+(defvar *terminal-allow-clipboard-read* nil
+  "When true, a program in a terminal may read the clipboard (an OSC 52 query,
+ESC ] 52 ; c ; ? ESC \\) and is answered with its contents.  Off by default, as
+in xterm and Alacritty: anything running in the terminal -- or anything it
+cats -- could otherwise read what was copied, passwords included.")
+
 ;;; --- the view ---------------------------------------------------------------
 
 (defclass terminal-view (view)
@@ -92,6 +98,8 @@ wl-copy / xclip / xsel).  Bind to NIL to keep copies in-process (e.g. in tests).
    (selecting  :initform nil :accessor tv-selecting)  ; a drag is in progress
    ;; OSC 52 (apps copying to the system clipboard) accumulation
    (osc52-buf :initform nil :accessor tv-osc52-buf)
+   ;; whether the child was last told it has focus (:unknown before the first draw)
+   (focused   :initform :unknown :accessor tv-focused)
    ;; foreign resources to free on shutdown
    (cell        :initform nil :accessor tv-cell)          ; reusable VTermScreenCell*
    (cbs-ptr     :initform nil :accessor tv-cbs-ptr)       ; VTermScreenCallbacks*
@@ -694,6 +702,7 @@ the wide glyph in the preceding column already covers it)."
 
 (defmethod draw ((tv terminal-view))
   (terminal-ensure-size tv)
+  (tv-note-focus tv (tv-has-focus-p tv))
   (let* ((b (view-bounds tv)))
     (when (and b (tv-vscreen tv) (tv-cell tv))
       (let* ((ax (rect-ax b)) (ay (rect-ay b))
@@ -812,6 +821,30 @@ clipboard."
             (when (and s (plusp (length s))) (return s)))))
       *terminal-clipboard*))
 
+;;; --- focus reporting --------------------------------------------------------
+;;; A program that asks (CSI ? 1004 h -- vim, tmux, Emacs) is told when the
+;;; terminal gains and loses focus, as ESC [ I and ESC [ O.  revision has no
+;;; focus-change event, so DRAW notices the change, as it notices everything
+;;; else: every window is redrawn when the desktop changes its active one.
+
+(defun tv-has-focus-p (tv)
+  "True when TV is its window's focused view and the window is the active one."
+  (and (view-focused-p tv)
+       (let ((root (view-root tv)))
+         (or (not (typep root 'window)) (revision::window-active root)))))
+
+(defun tv-note-focus (tv focused)
+  "Record whether TV has focus, telling the child when that changed (libvterm
+sends the report only if the child turned focus reporting on).  The first
+call only records it."
+  (let ((was (tv-focused tv)))
+    (unless (eq was focused)
+      (setf (tv-focused tv) focused)
+      (when (and (not (eq was :unknown)) (tv-vstate tv) (tv-alive tv))
+        (if focused
+            (vterm-state-focus-in (tv-vstate tv))
+            (vterm-state-focus-out (tv-vstate tv)))))))
+
 ;;; --- OSC 52: a program setting the clipboard --------------------------------
 
 (defun %install-selection (tv)
@@ -821,6 +854,13 @@ struct occupies two integer argument slots on arm64 / x86-64, so we declare the
 closure with the fragment flattened into (STR, PACKED)."
   (let* ((cbs (cffi:foreign-alloc '(:struct vterm-selection-callbacks)))
          (buf (cffi:foreign-alloc :unsigned-char :count 16384))
+         (querycb
+           (make-foreign-callback
+            (lambda (mask user)
+              (declare (ignore user))
+              (tv-answer-clipboard-query tv mask)
+              1)
+            :int '(:int :pointer)))
          (setcb
            (make-foreign-callback
             (lambda (mask str packed user)
@@ -837,10 +877,49 @@ closure with the fragment flattened into (STR, PACKED)."
               1)
             :int '(:int :pointer :uint64 :pointer))))
     (setf (cffi:foreign-slot-value cbs '(:struct vterm-selection-callbacks) 'set) setcb
-          (cffi:foreign-slot-value cbs '(:struct vterm-selection-callbacks) 'query) (cffi:null-pointer))
+          (cffi:foreign-slot-value cbs '(:struct vterm-selection-callbacks) 'query) querycb)
     (vterm-state-set-selection-callbacks (tv-vstate tv) cbs (cffi:null-pointer) buf 16384)
     (setf (tv-sel-cbs tv) cbs (tv-sel-buf tv) buf)
-    (push setcb (tv-closures tv))))
+    (push setcb (tv-closures tv))
+    (push querycb (tv-closures tv))))
+
+;;; --- OSC 52: a program reading the clipboard --------------------------------
+;;; Answered only when *TERMINAL-ALLOW-CLIPBOARD-READ*.  The reply is written to
+;;; the pty here rather than through vterm_state_send_selection, which in
+;;; libvterm 0.3.3 sign-extends bytes >= #x80 as it base64-encodes them, so any
+;;; non-ASCII text arrived corrupted.
+
+(defun %base64 (octets)
+  "OCTETS, a vector of (unsigned-byte 8), as base64 text."
+  (let ((alphabet "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"))
+    (with-output-to-string (out)
+      (loop for i from 0 below (length octets) by 3
+            for n = (min 3 (- (length octets) i))
+            for word = (logior (ash (aref octets i) 16)
+                               (ash (if (> n 1) (aref octets (+ i 1)) 0) 8)
+                               (if (> n 2) (aref octets (+ i 2)) 0))
+            do (dotimes (k 4)
+                 (write-char (if (<= k n)
+                                 (char alphabet (ldb (byte 6 (- 18 (* 6 k))) word))
+                                 #\=)
+                             out))))))
+
+(defun %selection-char (mask)
+  "The OSC 52 selection letter for a VTermSelectionMask: c, p, q, s, or a cut
+buffer's digit."
+  (let ((bit (or (loop for i from 0 below 12 when (logbitp i mask) return i) 0)))
+    (if (< bit 4) (char "cpqs" bit) (code-char (+ (char-code #\0) (- bit 4))))))
+
+(defun tv-answer-clipboard-query (tv mask)
+  "Answer a program's OSC 52 query with the clipboard, if that is allowed."
+  (let ((pty (tv-pty tv)))
+    (when (and *terminal-allow-clipboard-read* pty (>= (pty-master pty) 0))
+      (let ((reply (format nil "~C]52;~C;~A~C\\" (code-char 27) (%selection-char mask)
+                           (%base64 (sb-ext:string-to-octets (or (clipboard-get) "")
+                                                             :external-format :utf-8))
+                           (code-char 27))))
+        (cffi:with-foreign-string ((buf n) reply :null-terminated-p nil :encoding :ascii)
+          (pty-write (pty-master pty) buf n))))))
 
 ;;; --- selection --------------------------------------------------------------
 

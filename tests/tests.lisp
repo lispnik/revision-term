@@ -160,6 +160,39 @@ child -- `stty size' reflects it."
     ;; ESC [ M, button 1 pressed (0x20), column 5 and row 3 (1-based, +32)
     (is-true (pump-until tv (lambda () (search "1b 5b 4d 20 25 23" (grid-text tv)))))))
 
+(test focus-reported
+  "A child that turned on focus reporting (CSI ?1004h) is sent ESC [ I and
+ESC [ O as the terminal gains and loses focus; the first noting only records."
+  (with-terminal (tv '("/bin/sh" "-c"
+                       "stty raw -echo; printf '\\033[?1004h'; od -An -tx1 -N6; sleep 2"))
+    (sleep 0.5)
+    (revision::drain-ui-callbacks)          ; libvterm sees ?1004h
+    (revision-term::tv-note-focus tv nil)   ; first: recorded, not sent
+    (revision-term::tv-note-focus tv t)     ; ESC [ I
+    (revision-term::tv-note-focus tv t)     ; no change: nothing
+    (revision-term::tv-note-focus tv nil)   ; ESC [ O
+    (is-true (pump-until tv (lambda () (search "1b 5b 49 1b 5b 4f" (grid-text tv)))))))
+
+(test clipboard-query-answered-when-allowed
+  "With *TERMINAL-ALLOW-CLIPBOARD-READ*, an OSC 52 query is answered with the
+clipboard, base64-encoded -- non-ASCII intact (libvterm's own encoder breaks it)."
+  (let ((revision-term::*terminal-allow-clipboard-read* t)
+        (revision-term::*use-system-clipboard* nil)
+        (revision-term::*terminal-clipboard* (format nil "h~Cllo" (code-char #xe9))))
+    (with-terminal (tv '("/bin/sh" "-c"
+                         "stty raw -echo; printf '\\033]52;c;?\\033\\\\'; head -c 17 | tr '\\033' E; sleep 2"))
+      ;; base64 of the UTF-8 of h\u00e9llo is aMOpbGxv
+      (is-true (pump-until tv (lambda () (search "E]52;c;aMOpbGxvE" (grid-text tv))))))))
+
+(test clipboard-query-refused-by-default
+  "By default a program cannot read the clipboard: its OSC 52 query goes unanswered."
+  (let ((revision-term::*use-system-clipboard* nil)
+        (revision-term::*terminal-clipboard* "secret"))
+    (with-terminal (tv '("/bin/sh" "-c"
+                         "stty raw -echo; printf '\\033]52;c;?\\033\\\\'; timeout 1 head -c 17 | tr '\\033' E; printf 'END-%d' $((6*7)); sleep 2"))
+      (is-true (pump-until tv (lambda () (search "END-42" (grid-text tv)))))
+      (is-false (search "52;" (grid-text tv))))))
+
 ;;; --- improvement 5: OSC window title + DECSCUSR cursor shape ----------------
 
 (test osc-title

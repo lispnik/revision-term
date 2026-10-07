@@ -114,7 +114,7 @@ Source files (`:serial t`, load in this order):
 
 - **`cffi-callback-closures` for per-instance callbacks.** libvterm's `sb_pushline`, `sb_popline`,
   `sb_clear`, `settermprop`, `resize`, `bell`, the `damage`/`moverect` grid callbacks, the OSC-52
-  selection `set` callback, and the output callback each must close over **this** terminal's state.
+  selection `set` and `query` callbacks, and the output callback each must close over **this** terminal's state.
   That is the "N distinct C function pointers, each carrying its own data" case that
   `cffi:defcallback` cannot express — every `terminal-view` mints its own set with
   `make-foreign-callback` in `%install-callbacks`, freed on shutdown.
@@ -151,6 +151,11 @@ thunk. Or drop a raw `terminal-view` into a `stack`/`row` layout and call
   itself prove a rendering change works — run `make smoke` too.
 - Beware false-positive smoke tests: SBCL echoes its `--eval` command line in crash backtraces, so
   child-output markers must be computed at runtime (e.g. `$((6*7))`), not literals in the command.
+- **Focus reporting** has no revision event to hang on: `draw` calls `tv-note-focus` with
+  `tv-has-focus-p` (the window's focused view, in the active window) and tells libvterm when it
+  changed; every desktop window is redrawn when the active one changes. **OSC 52 queries** are
+  answered only under `*terminal-allow-clipboard-read*` (default NIL, as xterm), and the reply is
+  written to the pty directly: `vterm_state_send_selection` corrupts non-ASCII in libvterm 0.3.3.
 - A focused terminal forwards **all** keys to the child, so host window-management keys don't
   bubble up — drive demos with an in-app autopilot thread (`run-on-ui`), not external keystrokes.
 ```
