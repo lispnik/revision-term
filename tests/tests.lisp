@@ -150,11 +150,12 @@ child -- `stty size' reflects it."
 
 (test mouse-click-forwarded
   "With mouse reporting on, a click reaches the child as an X10 mouse report
-(ESC [ M, the button, then column and row): the child dumps the bytes it reads."
+(ESC [ M, the button, then column and row): the child dumps the bytes it reads.
+It goes raw before turning mouse reporting on, so the click is never line-buffered;
+od's spacing differs between GNU and BSD, so runs of spaces are squeezed."
   (with-terminal (tv '("/bin/sh" "-c"
-                       "printf '\\033[?1000h'; stty raw -echo; od -An -tx1 -N6; sleep 2"))
+                       "stty raw -echo; printf '\\033[?1000h'; od -An -tx1 -N6 | tr -s ' '; sleep 2"))
     (is-true (pump-until tv (lambda () (plusp (revision-term::tv-mouse-mode tv)))))
-    (sleep 0.3)                         ; let stty take effect before the click
     (revision:handle-event tv (make-instance 'revision:mouse-down :where (cons 4 2)
                                                                   :buttons revision::+mb-left+))
     ;; ESC [ M, button 1 pressed (0x20), column 5 and row 3 (1-based, +32)
@@ -164,7 +165,7 @@ child -- `stty size' reflects it."
   "A child that turned on focus reporting (CSI ?1004h) is sent ESC [ I and
 ESC [ O as the terminal gains and loses focus; the first noting only records."
   (with-terminal (tv '("/bin/sh" "-c"
-                       "stty raw -echo; printf '\\033[?1004h'; od -An -tx1 -N6; sleep 2"))
+                       "stty raw -echo; printf '\\033[?1004h'; od -An -tx1 -N6 | tr -s ' '; sleep 2"))
     (sleep 0.5)
     (revision::drain-ui-callbacks)          ; libvterm sees ?1004h
     (revision-term::tv-note-focus tv nil)   ; first: recorded, not sent
