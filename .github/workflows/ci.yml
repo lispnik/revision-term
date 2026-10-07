@@ -5,6 +5,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# The vterm commit CI builds against: pinned, so that a change to vterm does
+# not break this repository's CI with no change of its own.  Bump it on
+# purpose, after checking revision-term against the new vterm.
+env:
+  VTERM_REF: f70468eb4dd13fd4220d3be93e688a6712f42fc8
+
 jobs:
   test:
     name: test · ${{ matrix.os }}
@@ -16,7 +22,7 @@ jobs:
 
     steps:
       - name: Check out revision-term
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: revision-term
 
@@ -24,7 +30,9 @@ jobs:
       - name: Clone sibling frameworks
         run: |
           git clone --depth 1 https://github.com/lispnik/revision.git revision
-          git clone --depth 1 https://github.com/lispnik/vterm.git vterm
+          git init -q vterm
+          git -C vterm fetch -q --depth 1 https://github.com/lispnik/vterm.git "$VTERM_REF"
+          git -C vterm checkout -q FETCH_HEAD
           git clone --depth 1 https://github.com/lispnik/cffi-callback-closures.git cffi-callback-closures
 
       - name: Resolve sibling versions
@@ -38,14 +46,14 @@ jobs:
       # recompiles just those; see the mtime fixup below.)
       - name: Cache compiled fasls
         id: fasl
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/common-lisp
           key: ${{ runner.os }}-fasl-${{ steps.sib.outputs.key }}
 
       # Reuse ocicl's downloaded dependency blobs (skips re-fetching from ghcr.io).
       - name: Cache ocicl downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.local/share/ocicl
           key: ${{ runner.os }}-ocicl-${{ steps.sib.outputs.key }}
@@ -55,7 +63,7 @@ jobs:
       # Building ocicl from source (Linux) is slow; cache the binary.
       - name: Cache ocicl binary (Linux)
         if: runner.os == 'Linux'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.local/bin/ocicl
           key: Linux-ocicl-bin-v1

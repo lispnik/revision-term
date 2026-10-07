@@ -42,7 +42,9 @@ Test names are the `(test NAME ...)` forms in `tests/tests.lisp`. `make test` ca
 - **libvterm** — `brew install libvterm` (macOS; installed under `/opt/homebrew/lib`, which
   `ensure-libvterm` adds to the dyld search path) or your distro's `libvterm-dev`.
 - **Sibling checkouts next to this one**: `../revision` (the framework),
-  `../vterm` (the libvterm CFFI binding, [lispnik/vterm](https://github.com/lispnik/vterm)) and
+  `../vterm` (the libvterm CFFI binding, [lispnik/vterm](https://github.com/lispnik/vterm); CI builds
+  against the commit `VTERM_REF` in `.github/workflows/ci.yml` names, so bump that after checking a
+  new vterm locally) and
   `../cffi-callback-closures` (which bundles its own `cffi` / `cffi-libffi` under `ocicl/`).
   `setup.lisp` assumes this sibling layout. The framework must be new enough to have text-style
   support in its RGB attributes (`attr-rgb-style`, the style arg to `rgb-attr`/`make-rgb`) —
